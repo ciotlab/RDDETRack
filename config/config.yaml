@@ -1,0 +1,52 @@
+dataset.area_min: [0.0, -12.0, -2.0]  # meter, radar facing towards x
+dataset.area_size: [9.0, 24.0, 4.0]   # meter, radar facing towards x
+dataset.box_margin: [0.2, 0.2, 0.2]  # meter
+dataset.min_max_velocity: [-2.0, 2.0]  # m/s (= 3.6 km/h)
+dataset.min_max_power_db: [-50.0, 50.0]  # dB
+dataset.camera_displacement_y: -0.1  # Camera displacement along y-axis (meter)
+dataset.num_keypoints: 18  # Number of human skeleton keypoints
+dataset.num_prev_frames: 5  # Including current frame
+
+model.num_stacked_frames: 1
+model.input_mlp_num_layers: 0
+model.box_mlp_num_layers: 2
+model.max_num_points: 1000
+model.num_layers: 6
+model.dim_feedforward: 4096
+model.d_model: 512
+model.pre_ln: True  # pre layer-normalization
+model.trans_dropout: 0.1
+model.n_heads: 8
+model.num_queries: 150
+model.trans_activation: 'gelu'  # relu, gelu, glu
+
+training.num_dataset_workers: 0
+training.batch_size: 32
+training.lr: 0.0001
+training.weight_decay: 0.01
+training.epochs: 64
+# training.lr_drop: 12  # for stepLR scheduler
+training.warmup_proportion: 0.01  # for cosine_schedule_with_warmup scheduler
+training.clip_max_norm: 1.0
+training.seed: 42
+training.model_file_name: 'saved_model.pt'
+
+wandb: True
+wandb.keypoint_metric_weight: 1
+wandb.keypoint_metric_thresh: 0.2
+
+loss.boxes_coef: 1
+loss.keypoints_coef: 1
+loss.giou_coef: 5
+loss.object_coef: 12
+loss.empty_weight: 300
+
+matcher.cost_boxes: 1
+matcher.cost_keypoint: 1
+matcher.cost_giou: 1
+matcher.cost_obj: 1
+
+validation.keypoint_thresh_list: [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+validation.nms_iou_thresh: 0.5
+validation.matching_iou_thresh: 0.5
+validation.conf_thresh: 0.9
