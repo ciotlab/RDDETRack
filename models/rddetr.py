@@ -98,7 +98,6 @@ class RDDETR(nn.Module):
             if isinstance(point_cloud_padding_mask, np.ndarray):
                 point_cloud_padding_mask = torch.from_numpy(point_cloud_padding_mask).to(point_cloud.device)
             x = self.input_model(point_cloud)  # batch, token, data
-            print(query.shape)
             x, attn, intermediate_output, intermediate_attn = self.transformer(query=query, source=x,
                                                                                query_pos=query_pos, source_pos=None,
                                                                                key_padding_mask=point_cloud_padding_mask,

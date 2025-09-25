@@ -31,8 +31,8 @@ class HungarianMatcher(nn.Module):
         out_boxes = rearrange(outputs['pred_boxes'], "b q p c -> (b q) (p c)")
         out_keypoints = rearrange(outputs["pred_keypoints"], "b q p c -> (b q) (p c)")
         out_confidence = rearrange(outputs['pred_confidence'], "b q c -> (b q) c")
-        tgt_boxes = rearrange(np.concatenate(targets['target']["boxes"], axis=0), "bp p c -> bp (p c)")
-        tgt_keypoints = rearrange(np.concatenate(targets['target']["keypoints"], axis=0), "bp p c -> bp (p c)")
+        tgt_boxes = rearrange(np.concatenate(targets["boxes"], axis=0), "bp p c -> bp (p c)")
+        tgt_keypoints = rearrange(np.concatenate(targets["keypoints"], axis=0), "bp p c -> bp (p c)")
         tgt_boxes = torch.tensor(tgt_boxes).float().to(out_boxes.device)
         tgt_keypoints = torch.tensor(tgt_keypoints).float().to(out_boxes.device)
         # Compute costs
@@ -51,7 +51,7 @@ class HungarianMatcher(nn.Module):
             C = C + cost_iou
         C = C.view(batch_size, num_queries, -1).cpu()
 
-        sizes = [v.shape[0] for v in targets['target']["boxes"]]
+        sizes = [v.shape[0] for v in targets["boxes"]]
 
         for i, target in enumerate(targets):
             if 'track_query_match_ids' not in target:
