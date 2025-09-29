@@ -53,19 +53,13 @@ class HungarianMatcher(nn.Module):
 
         sizes = [v.shape[0] for v in targets["boxes"]]
 
-        for i, target in enumerate(targets):
-            if 'track_query_match_ids' not in target:
-                continue
-
-            prop_i = 0
-            for j in range(C.shape[1]):
-                if target['track_queries_mask'][j]:
-                    track_query_id = target['track_query_match_ids'][prop_i]
-                    prop_i += 1
-
-                    C[i, j] = np.inf
-                    C[i, :, track_query_id + sum(sizes[:i])] = np.inf
-                    C[i, j, track_query_id + sum(sizes[:i])] = -1
+        if 'track_query_match_ids' in targets:
+            for i in range(batch_size):
+                hs_ind, ids_ind = targets['track_query_match_ids'][i]
+                for j in range(hs_ind.shape[0]):
+                    C[i, hs_ind[j]] = np.inf
+                    C[i, :, ids_ind[j] + sum(sizes[:i])] = np.inf
+                    C[i, hs_ind[j], ids_ind[j] + sum(sizes[:i])] = -1
 
         indices = [linear_sum_assignment(c[i])
                    for i, c in enumerate(C.split(sizes, -1))]

@@ -9,9 +9,10 @@ from models.matcher import HungarianMatcher
 
 
 class SetCriterion(nn.Module):
-    def __init__(self, empty_weight, matcher_weights=None):
+    def __init__(self, num_frames, empty_weight, matcher_weights=None):
         super().__init__()
         self.register_buffer('empty_weight', torch.tensor(empty_weight))
+        self.num_frames = num_frames
         if matcher_weights:
             cost_boxes = matcher_weights['cost_boxes']
             cost_keypoint = matcher_weights['cost_keypoint']
@@ -30,9 +31,9 @@ class SetCriterion(nn.Module):
         out_confidence = outputs['pred_confidence_logit'].squeeze(-1)
 
         target_keypoints = torch.cat([torch.tensor(t).float().to(out_keypoints.device)[i]
-                                      for t, (_, i) in zip(targets['target']['keypoints'], indices)], dim=0)
+                                      for t, (_, i) in zip(targets['keypoints'], indices)], dim=0)
         target_boxes = torch.cat([torch.tensor(t).float().to(out_boxes.device)[i]
-                                  for t, (_, i) in zip(targets['target']['boxes'], indices)], dim=0)
+                                  for t, (_, i) in zip(targets['boxes'], indices)], dim=0)
         target_confidence = torch.zeros_like(out_confidence)
         target_confidence[idx] = 1
 
@@ -59,12 +60,22 @@ class SetCriterion(nn.Module):
     def forward(self, outputs, targets):
         """ This performs the loss computation.
         """
-        # Retrieve the matching between the outputs of the last layer and the targets
-        indices = self.matcher(outputs, targets)
-        self.indices = indices
+        device = targets[self.num_frames-1]['track_query_hs_embed'].device
+        losses = {'loss_keypoints':torch.tensor(0.0).to(device), 'loss_boxes':torch.tensor(0.0).to(device),
+                  'loss_object':torch.tensor(0.0).to(device), 'loss_giou':torch.tensor(0.0).to(device)}
+        for i in range(self.num_frames):
+            output = outputs[i]
+            target = targets[i]
+            # Retrieve the matching between the outputs of the last layer and the targets
+            indices = self.matcher(output, target)
+            self.indices = indices
 
-        # Compute loss
-        losses = self.get_losses(outputs, targets, indices)
+            # Compute loss
+            loss = self.get_losses(output, target, indices)
+            losses['loss_keypoints'] += loss['loss_keypoints']
+            losses['loss_boxes'] += loss['loss_boxes']
+            losses['loss_object'] += loss['loss_object']
+            losses['loss_giou'] += loss['loss_giou']
         return losses
 
 

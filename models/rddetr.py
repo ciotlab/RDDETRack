@@ -1,4 +1,5 @@
 import numpy as np
+from ray.data import from_numpy
 from tqdm import tqdm
 import torch
 from torch import nn
@@ -34,91 +35,85 @@ class RDDETR(nn.Module):
         self.register_buffer('query_pos', query_pos)
         self.query = nn.Embedding(num_queries, d_model)
         self.matcher = matcher
+
         #query_zero = torch.zeros(num_queries, d_model)
         #self.register_buffer('query_zero', query_zero)
 
     def add_track_query_to_target(self, targets, prev_target, prev_indices, prev_out):
         device = prev_out['pred_boxes'].device
 
-        all_track_query_match_ids = []
-        all_track_query_hs_embeds = []
-        all_track_query_boxes = []
-        all_track_queries_mask = []
+        max_prev_target_ind = max(len(prev_ind[1]) for prev_ind in prev_indices)
 
-        # Loop over the batch using the indices from the matcher
+        track_query_match_ids = []
+        track_query_hs_embed = []
+        track_query_mask = []
+
         for i, prev_ind in enumerate(prev_indices):
             prev_out_ind, prev_target_ind = prev_ind
 
-            # This line assumes prev_target_ind correctly indexes into the batched tensor
-            prev_track_ids = prev_target['id'][prev_target_ind[1]]
+            hs_with_padding = torch.zeros((max_prev_target_ind, self.d_model)).to(device)
+            hs = prev_out['hs_embed'][i, prev_out_ind]
+            hs_with_padding[:hs.shape[0]] = hs
+            prev_ids = np.array(prev_target['ids'][i])[prev_target_ind]
 
-            # We need to get the target IDs for the current item in the batch
-            # This assumes 'id' is a batched tensor in the targets dictionary
-            current_target_ids = torch.from_numpy(targets['id'][i])
+            target_ids = torch.tensor(targets['ids'][i])
+            prev_ids = torch.tensor(prev_ids)
+            hs_ind = target_ids.unsqueeze(dim=1).eq(prev_ids).nonzero()[:,1]
+            ids_ind = prev_ids.unsqueeze(dim=1).eq(target_ids).nonzero()[:,1]
 
-            target_ind_match_matrix = torch.from_numpy(prev_track_ids).unsqueeze(dim=1).eq(current_target_ids)
-            target_ind_matching = target_ind_match_matrix.any(dim=1)
-            target_ind_matched_idx = target_ind_match_matrix.nonzero()[:, 1]
+            track_query_match_ids.append((hs_ind, ids_ind))
+            track_query_hs_embed.append(hs_with_padding)
 
-            # Append the results for the current batch item to our lists
-            targets['track_query_match_ids'] = target_ind_matched_idx
+            query_mask = torch.ones(max_prev_target_ind, dtype=bool)
+            query_mask[:max_prev_target_ind] = False
+            query_mask = torch.cat((query_mask, torch.zeros(self.num_queries, dtype=bool)), axis=0)
+            track_query_mask.append(query_mask)
 
-            track_queries_mask = torch.ones_like(target_ind_matching).to(device).bool()
+        targets['track_query_match_ids'] = track_query_match_ids
+        targets['track_query_hs_embed'] = torch.stack(track_query_hs_embed).to(device)
+        targets['track_query_mask'] = torch.stack(track_query_mask).to(device)
 
-            hs_embeds = prev_out['hs_embed'][i, prev_out_ind]
-            targets['track_query_hs_embeds'] = hs_embeds
+    def forward(self, point_cloud, point_cloud_padding_mask, boxes, keypoints, id, num_frames=1):
+        batch_size = point_cloud.shape[0] // num_frames
+        device = point_cloud.device
+        prediction_list = []
+        target_list = []
+        frame_filter = [False] * num_frames
+        frame_filter[0] = True
+        frame_filter = frame_filter * batch_size
+        for i in range(num_frames):
+            point_cloud_per_frame = point_cloud[frame_filter]
+            point_cloud_padding_mask_per_frame = point_cloud_padding_mask[frame_filter]
+            boxes_per_frame = [b for b, m in zip(boxes, frame_filter) if m]
+            keypoints_per_frame = [k for k, m in zip(keypoints, frame_filter) if m]
+            ids_per_frame = [i for i, m in zip(id, frame_filter) if m]
+            targets = {'boxes': boxes_per_frame, 'keypoints': keypoints_per_frame, 'ids': ids_per_frame}
 
-            boxes = prev_out['pred_boxes'][i, prev_out_ind].detach()
-            targets['track_query_boxes'] = boxes
-
-            mask = torch.cat([track_queries_mask, torch.tensor([False, ] * self.num_queries).to(device)]).bool()
-            targets['track_queries_mask'] = mask
-
-    def forward(self, data):
-        prev_indices = None
-        while True:
-            point_cloud = data['input']['point_cloud']
-            point_cloud_padding_mask = data['input']['point_cloud_padding_mask']
-            targets = data['target']
-
-
-            query_pos = self.query_pos
             query = self.query.weight
-            if prev_indices != None:
-                self.add_track_query_to_target(targets, prev_targets, prev_indices, prediction)
-                if 'track_query_hs_embeds' in targets.keys():
-                    track_query_hs_embeds = torch.tensor(targets['track_query_hs_embeds'])
-                    num_track_queries = track_query_hs_embeds.shape[0]
-                    track_query_pos = torch.zeros(num_track_queries, self.d_model).to(query_pos.device)
-                    query_pos = torch.cat([track_query_pos, query_pos], dim=0)
-                    query = torch.cat([track_query_hs_embeds, query], dim=0)
+            query_pos = self.query_pos
 
-            if isinstance(point_cloud, np.ndarray):
-                point_cloud = torch.from_numpy(point_cloud).to(query_pos.device)
-            if isinstance(point_cloud_padding_mask, np.ndarray):
-                point_cloud_padding_mask = torch.from_numpy(point_cloud_padding_mask).to(point_cloud.device)
-            x = self.input_model(point_cloud)  # batch, token, data
+            if i > 0:
+                self.add_track_query_to_target(targets, prev_targets, indices, prediction)
+            x = self.input_model(point_cloud_per_frame)  # batch, token, data
             x, attn, intermediate_output, intermediate_attn = self.transformer(query=query, source=x,
                                                                                query_pos=query_pos, source_pos=None,
-                                                                               key_padding_mask=point_cloud_padding_mask,
+                                                                               key_padding_mask=point_cloud_padding_mask_per_frame,
                                                                                targets=targets)
-            output_3d_box = self.box_head(x).reshape(-1, query.shape[0], 2, 3).sigmoid()
-            output_keypoint_dist = self.keypoint_dist_head(x).reshape(-1, query.shape[0], self.num_keypoints, 3).sigmoid()
+            output_3d_box = self.box_head(x).reshape(-1, x.shape[1], 2, 3).sigmoid()
+            output_keypoint_dist = self.keypoint_dist_head(x).reshape(-1, x.shape[1], self.num_keypoints, 3).sigmoid()
             output_confidence_logit = self.objectness_head(x)
             output_confidence = output_confidence_logit.sigmoid()
             prediction = {'pred_keypoints': output_keypoint_dist, 'pred_boxes': output_3d_box,
                           'attention_map': intermediate_attn + [attn], 'pred_confidence_logit': output_confidence_logit,
                           'pred_confidence': output_confidence, 'hs_embed': x}
+            prediction_list.append(prediction)
+            target_list.append(targets)
+            indices = self.matcher(prediction, targets)
+            prev_targets = targets
+            frame_filter.insert(0, False)
+            frame_filter.pop()
 
-            if data.get('next_frame') is None:
-                break
-            else:
-                prev_targets = targets
-                data = data['next_frame']
-
-            prev_indices = self.matcher(prediction, data)
-
-        return prediction
+        return prediction_list, target_list
 
 
 if __name__ == "__main__":

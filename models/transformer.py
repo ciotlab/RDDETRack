@@ -37,9 +37,18 @@ class Transformer(nn.Module):
         intermediate_attn = []
         x = query
         attn = torch.empty(0)
+        if 'track_query_hs_embed' in targets:
+            track_query = targets['track_query_hs_embed']
+            x = torch.cat([track_query, x], dim=1)
+            track_query_pos = torch.zeros_like(track_query)
+            query_pos = torch.cat([track_query_pos, query_pos], dim=1)
+            query_mask = targets['track_query_mask']
+        else:
+            query_mask = None
         for i, layer in enumerate(self.layers):
             x, attn = layer(query=x, source=source, query_pos=query_pos, source_pos=source_pos,
-                            key_padding_mask=key_padding_mask)
+                            key_padding_mask=key_padding_mask,
+                            query_mask=query_mask)
             if self.return_intermediate and i < len(self.layers)-1:
                 intermediate_output.append(x)
                 intermediate_attn.append(attn)
@@ -71,46 +80,58 @@ class TransformerLayer(nn.Module):
     def with_pos_embed(tensor, pos: Optional[Tensor]):
         return tensor if pos is None else tensor + pos
 
-    def forward(self, query, source, query_pos, source_pos, key_padding_mask):
+    def forward(self, query, source, query_pos, source_pos, key_padding_mask, query_mask=None):
         if self.pre_ln:
-            x, cross_attn_map = self.forward_pre_ln(query, source, query_pos, source_pos, key_padding_mask)
+            x, cross_attn_map = self.forward_pre_ln(query, source, query_pos, source_pos, key_padding_mask, query_mask)
         else:
-            x, cross_attn_map = self.forward_post_ln(query, source, query_pos, source_pos, key_padding_mask)
+            x, cross_attn_map = self.forward_post_ln(query, source, query_pos, source_pos, key_padding_mask, query_mask)
         return x, cross_attn_map
 
-    def forward_post_ln(self, query, source, query_pos, source_pos, key_padding_mask):
+    def forward_post_ln(self, query, source, query_pos, source_pos, key_padding_mask, query_mask):
         x = query
         q = k = self.with_pos_embed(x, query_pos)
-        x2, self_attn_map = self.self_attn(query=q, key=k, value=x)
+        x2, self_attn_map = self.self_attn(query=q, key=k, value=x, key_padding_mask=query_mask)
         x = x + self.dropout1(x2)
+        if query_mask is not None:
+            x = x.masked_fill(query_mask.unsqueeze(-1), 0.0)
         x = self.norm1(x)
         x2, cross_attn_map = self.cross_attn(query=self.with_pos_embed(x, query_pos),
                                              key=self.with_pos_embed(source, source_pos), value=source,
                                              key_padding_mask=key_padding_mask)
         x = x + self.dropout2(x2)
+        if query_mask is not None:
+            x = x.masked_fill(query_mask.unsqueeze(-1), 0.0)
         x = self.norm2(x)
         x2 = self.linear2(self.dropout(self.activation(self.linear1(x))))
         x = x + self.dropout3(x2)
         x = self.norm3(x)
+        if query_mask is not None:
+            x = x.masked_fill(query_mask.unsqueeze(-1), 0.0)
         return x, cross_attn_map
 
-    def forward_pre_ln(self, query, source, query_pos, source_pos, key_padding_mask):
+    def forward_pre_ln(self, query, source, query_pos, source_pos, key_padding_mask, query_mask):
         x = query
         # self attention
         x2 = self.norm1(x)
         q = k = self.with_pos_embed(x2, query_pos)
         x2, self_attn_map = self.self_attn(query=q, key=k, value=x2)
         x = x + self.dropout1(x2)
+        if query_mask is not None:
+            x = x.masked_fill(query_mask.unsqueeze(-1), 0.0)
         # cross attention
         x2 = self.norm2(x)
         x2, cross_attn_map = self.cross_attn(query=self.with_pos_embed(x2, query_pos),
                                              key=self.with_pos_embed(source, source_pos), value=source,
                                              key_padding_mask=key_padding_mask)
         x = x + self.dropout2(x2)
+        if query_mask is not None:
+            x = x.masked_fill(query_mask.unsqueeze(-1), 0.0)
         # FFNN
         x2 = self.norm3(x)
         x2 = self.linear2(self.dropout(self.activation(self.linear1(x2))))
         x = x + self.dropout3(x2)
+        if query_mask is not None:
+            x = x.masked_fill(query_mask.unsqueeze(-1), 0.0)
         return x, cross_attn_map
 
 

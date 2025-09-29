@@ -17,7 +17,7 @@ from models.matcher import HungarianMatcher
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, weight_dict: Dict, optimizer: torch.optim.Optimizer,
-                    lr_scheduler, device: torch.device, epoch: int, max_norm: float = 0, use_wandb=False):
+                    lr_scheduler, device: torch.device, epoch: int, num_frames, max_norm: float = 0, use_wandb=False):
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -26,23 +26,14 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     print_freq = 10
 
     for data in metric_logger.log_every(data_loader, print_freq, header):
-        # point_cloud = torch.tensor(data['point_cloud']).to(device)
-        # point_cloud_padding_mask = torch.tensor(data['point_cloud_padding_mask']).to(device)
-        # targets = {'boxes': data['box'], 'keypoints': data['keypoint'], 'id': data['id']}
-        # data = data.to(device)
-        for k, v in data.items():
-            if isinstance(v, dict):
-                for k2, v2 in v.items():
-                    if isinstance(v2, np.ndarray):
-                        data[k][k2] = torch.from_numpy(v2).to(device)
-                    elif hasattr(v2, 'to'):
-                        data[k][k2] = v2.to(device)
-            elif isinstance(v, np.ndarray):
-                data[k] = torch.from_numpy(v).to(device)
-            elif hasattr(v, 'to'):
-                data[k] = v.to(device)
-        outputs = model(data)
-        loss_dict = criterion(outputs, data)
+        point_cloud = torch.tensor(data['point_cloud']).to(device)
+        point_cloud_padding_mask = torch.tensor(data['point_cloud_padding_mask']).to(device)
+        boxes = data['box']
+        keypoints = data['keypoint']
+        id = data['id']
+
+        outputs, targets = model(point_cloud, point_cloud_padding_mask, boxes, keypoints, id, num_frames)
+        loss_dict = criterion(outputs, targets)
         total_loss = torch.tensor(0.0, device=device)
         for k in loss_dict.keys():
             if k in weight_dict:
@@ -76,24 +67,15 @@ def evaluate(model, data_loader, area_min, area_size, num_keypoints, device, key
     skeleton_list = []
     keypoint_error_list = []
     for data in metric_logger.log_every(data_loader, 10, header):
-        point_cloud = torch.tensor(data['input']['point_cloud']).to(device)
-        point_cloud_padding_mask = torch.tensor(data['input']['point_cloud_padding_mask']).to(device)
-        input = {'point_cloud': point_cloud, 'point_cloud_padding_mask': point_cloud_padding_mask}
-        targets = {'boxes': data['target']['boxes'], 'keypoints': data['target']['keypoints']}
-        data = {'input': input, 'target': targets, 'next_frame': None}
-        for k, v in data.items():
-            if isinstance(v, dict):
-                for k2, v2 in v.items():
-                    if isinstance(v2, np.ndarray):
-                        data[k][k2] = torch.from_numpy(v2).to(device)
-                    elif hasattr(v2, 'to'):
-                        data[k][k2] = v2.to(device)
-            elif isinstance(v, np.ndarray):
-                data[k] = torch.from_numpy(v).to(device)
-            elif hasattr(v, 'to'):
-                data[k] = v.to(device)
-        outputs = model(data)
-        outputs = nms(outputs, iou_thresh=nms_iou_thresh)
+        point_cloud = torch.tensor(data['point_cloud']).to(device)
+        point_cloud_padding_mask = torch.tensor(data['point_cloud_padding_mask']).to(device)
+        boxes = data['box']
+        keypoints = data['keypoint']
+        id = data['id']
+        targets = {'boxes':boxes, 'keypoints':keypoints, 'id':id}
+
+        outputs, _ = model(point_cloud, point_cloud_padding_mask, boxes, keypoints, id)
+        outputs = nms(outputs[0], iou_thresh=nms_iou_thresh)
         conf_matched, num_target, skeleton, keypoint_error \
             = get_batch_statistics(outputs, targets, area_min, area_size, num_keypoints, matching_iou_thresh, conf_thresh)
         conf_matched_list.append(conf_matched)
