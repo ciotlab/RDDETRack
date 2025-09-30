@@ -63,9 +63,7 @@ class SetCriterion(nn.Module):
         device = targets[self.num_frames-1]['track_query_hs_embed'].device
         losses = {'loss_keypoints':torch.tensor(0.0).to(device), 'loss_boxes':torch.tensor(0.0).to(device),
                   'loss_object':torch.tensor(0.0).to(device), 'loss_giou':torch.tensor(0.0).to(device)}
-        for i in range(self.num_frames):
-            output = outputs[i]
-            target = targets[i]
+        for output, target in zip(outputs, targets):
             # Retrieve the matching between the outputs of the last layer and the targets
             indices = self.matcher(output, target)
             self.indices = indices
