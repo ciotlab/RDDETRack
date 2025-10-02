@@ -114,7 +114,7 @@ class TransformerLayer(nn.Module):
         # self attention
         x2 = self.norm1(x)
         q = k = self.with_pos_embed(x2, query_pos)
-        x2, self_attn_map = self.self_attn(query=q, key=k, value=x2)
+        x2, self_attn_map = self.self_attn(query=q, key=k, value=x2, key_padding_mask=query_mask)
         x = x + self.dropout1(x2)
         if query_mask is not None:
             x = x.masked_fill(query_mask.unsqueeze(-1), 0.0)
