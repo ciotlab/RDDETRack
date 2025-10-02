@@ -24,7 +24,7 @@ class RDDETRTracking(nn.Module):
         self.num_layers = num_layers
         self.dim_feedforward = dim_feedforward
 
-    def add_track_query_to_target(self, targets, prev_target, prev_out):
+    def track_query_generation(self, targets, prev_target, prev_out):
         device = prev_out['pred_boxes'].device
         prev_indices = prev_target['indices']
 
@@ -32,7 +32,7 @@ class RDDETRTracking(nn.Module):
 
         track_query = {}
 
-        track_query_match_ids = []
+        track_query_match_matrices = []
         track_query_hs_embed = []
         track_query_mask = []
 
@@ -52,19 +52,18 @@ class RDDETRTracking(nn.Module):
                 prev_ids = torch.zeros((0,), dtype=torch.long, device=device)
             cur_ids = torch.as_tensor(targets['ids'][b], dtype=torch.long, device=device)
 
-            hs_ind = cur_ids.unsqueeze(dim=1).eq(prev_ids).nonzero()[:,1]
-            ids_ind = prev_ids.unsqueeze(dim=1).eq(cur_ids).nonzero()[:,1]
+            match_matrix = prev_ids.unsqueeze(dim=1).eq(cur_ids).nonzero()
 
             query_mask = torch.ones(max_prev_target_ind, dtype=torch.bool, device=device)
             if prev_out_ind.numel() > 0:
-                query_mask[:max_prev_target_ind] = False
+                query_mask[:len(prev_out_ind)] = False
             query_mask = torch.cat((query_mask, torch.zeros(self.num_queries, dtype=torch.bool, device=device)),axis=0)
 
-            track_query_match_ids.append((hs_ind, ids_ind))
+            track_query_match_matrices.append(match_matrix)
             track_query_hs_embed.append(hs_with_padding)
             track_query_mask.append(query_mask)
 
-        track_query['track_query_match_ids'] = track_query_match_ids
+        track_query['track_query_match_matrix'] = track_query_match_matrices
         track_query['track_query_hs_embed'] = torch.stack(track_query_hs_embed, dim=0).to(device)
         track_query['track_query_mask'] = torch.stack(track_query_mask, dim=0).to(device)
 
@@ -88,11 +87,11 @@ class RDDETRTracking(nn.Module):
             targets = {'boxes': boxes_t, 'keypoints': keypoints_t, 'ids': ids_t, 'indices': None}
 
             if t > 0 and prev_targets['indices'] is not None:
-                track_query = self.add_track_query_to_target(targets, prev_targets, prev_out)
+                track_query = self.track_query_generation(targets, prev_targets, prev_out)
 
             out = self.backbone(point_cloud_t, pc_mask_t, track_query=track_query)
 
-            prev_indices = self.matcher(out, targets)
+            prev_indices = self.matcher(out, targets, track_query)
             targets['indices'] = prev_indices
             prev_targets = targets
             prev_out = out

@@ -26,7 +26,7 @@ class HungarianMatcher(nn.Module):
         self.iou_thresh = iou_thresh
 
     @torch.no_grad()
-    def forward(self, outputs, targets):
+    def forward(self, outputs, targets, track_query=None):
         batch_size, num_queries = outputs["pred_keypoints"].shape[:2]
         out_boxes = rearrange(outputs['pred_boxes'], "b q p c -> (b q) (p c)")
         out_keypoints = rearrange(outputs["pred_keypoints"], "b q p c -> (b q) (p c)")
@@ -53,13 +53,13 @@ class HungarianMatcher(nn.Module):
 
         sizes = [v.shape[0] for v in targets["boxes"]]
 
-        if 'track_query_match_ids' in targets:
+        if track_query is not None and 'track_query_match_matrix' in track_query:
             for i in range(batch_size):
-                hs_ind, ids_ind = targets['track_query_match_ids'][i]
-                for j in range(hs_ind.shape[0]):
-                    C[i, hs_ind[j]] = np.inf
-                    C[i, :, ids_ind[j] + sum(sizes[:i])] = np.inf
-                    C[i, hs_ind[j], ids_ind[j] + sum(sizes[:i])] = -1
+                match_matrix = track_query['track_query_match_matrix'][i]
+                C[i,:match_matrix.shape[0]] = np.inf
+                for j in range(match_matrix.shape[0]):
+                    C[i, :, match_matrix[j][1] + sum(sizes[:i])] = np.inf
+                    C[i, match_matrix[j][0], match_matrix[j][1] + sum(sizes[:i])] = -1
 
         indices = [linear_sum_assignment(c[i])
                    for i, c in enumerate(C.split(sizes, -1))]
