@@ -60,13 +60,12 @@ class SetCriterion(nn.Module):
     def forward(self, outputs, targets):
         """ This performs the loss computation.
         """
-        device = targets[self.num_frames-1]['track_query_hs_embed'].device
+        device = outputs[-1]['pred_boxes'].device
         losses = {'loss_keypoints':torch.tensor(0.0).to(device), 'loss_boxes':torch.tensor(0.0).to(device),
                   'loss_object':torch.tensor(0.0).to(device), 'loss_giou':torch.tensor(0.0).to(device)}
         for output, target in zip(outputs, targets):
             # Retrieve the matching between the outputs of the last layer and the targets
-            indices = self.matcher(output, target)
-            self.indices = indices
+            indices = target['indices']
 
             # Compute loss
             loss = self.get_losses(output, target, indices)

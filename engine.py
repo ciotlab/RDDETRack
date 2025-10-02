@@ -17,7 +17,7 @@ from models.matcher import HungarianMatcher
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, weight_dict: Dict, optimizer: torch.optim.Optimizer,
-                    lr_scheduler, device: torch.device, epoch: int, num_frames, max_norm: float = 0, use_wandb=False):
+                    lr_scheduler, device: torch.device, epoch: int, num_tracking_frames, max_norm: float = 0, use_wandb=False):
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -32,7 +32,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         keypoints = data['keypoint']
         id = data['id']
 
-        outputs, targets = model(point_cloud, point_cloud_padding_mask, boxes, keypoints, id, num_frames)
+        outputs, targets = model(point_cloud, point_cloud_padding_mask, boxes, keypoints, id, num_tracking_frames)
         loss_dict = criterion(outputs, targets)
         total_loss = torch.tensor(0.0, device=device)
         for k in loss_dict.keys():
@@ -113,6 +113,8 @@ def nms(outputs, iou_thresh):
 
 
 def get_batch_statistics(outputs, targets, area_min, area_size, num_keypoints, iou_thresh, conf_thresh):
+    targets['boxes'] = targets['boxes'][0]
+    targets['keypoints'] = targets['keypoints'][0]
     matcher = HungarianMatcher(cost_boxes=0, cost_keypoint=0, cost_giou=0, cost_obj=1,
                                iou_thresh=iou_thresh)
     indices = matcher(outputs, targets)

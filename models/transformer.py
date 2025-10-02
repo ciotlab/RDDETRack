@@ -27,7 +27,7 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, query, source, query_pos, source_pos, key_padding_mask, targets):
+    def forward(self, query, source, query_pos, source_pos, key_padding_mask, track_query):
         num_batch = source.shape[0]
         query = query.expand(num_batch, -1, -1)
         query_pos = query_pos.expand(num_batch, -1, -1)
@@ -37,12 +37,12 @@ class Transformer(nn.Module):
         intermediate_attn = []
         x = query
         attn = torch.empty(0)
-        if 'track_query_hs_embed' in targets:
-            track_query = targets['track_query_hs_embed']
-            x = torch.cat([track_query, x], dim=1)
-            track_query_pos = torch.zeros_like(track_query)
+        if track_query is not None and 'track_query_hs_embed' in track_query:
+            track_query_embed = track_query['track_query_hs_embed']
+            x = torch.cat([track_query_embed, x], dim=1)
+            track_query_pos = torch.zeros_like(track_query_embed)
             query_pos = torch.cat([track_query_pos, query_pos], dim=1)
-            query_mask = targets['track_query_mask']
+            query_mask = track_query['track_query_mask']
         else:
             query_mask = None
         for i, layer in enumerate(self.layers):

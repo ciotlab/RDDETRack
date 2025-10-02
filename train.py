@@ -13,6 +13,7 @@ import random
 import util.misc as utils
 from engine import train_one_epoch, evaluate
 from models.rddetr import RDDETR
+from models.rddetr_tracking import RDDETRTracking
 from models.criterion import SetCriterion
 from data_processing.dataset import get_dataset_and_dataloader
 from transformers import get_cosine_schedule_with_warmup
@@ -40,11 +41,11 @@ def main(conf_file='config.yaml', device='cuda:0'):
                        'cost_giou': conf['matcher.cost_giou'], 'cost_obj': conf['matcher.cost_obj']}
     matcher = HungarianMatcher(matcher_weights['cost_boxes'], matcher_weights['cost_keypoint'],
                                matcher_weights['cost_giou'], matcher_weights['cost_obj'])
-    model = RDDETR(conf['model.num_stacked_frames'], conf['dataset.num_keypoints'],
+    model = RDDETRTracking(conf['model.num_stacked_frames'], conf['dataset.num_keypoints'],
                    conf['model.input_mlp_num_layers'], conf['model.box_mlp_num_layers'], conf['model.d_model'],
                    conf['model.num_queries'], conf['model.n_heads'], conf['model.num_layers'], conf['model.dim_feedforward'],
                    conf['model.trans_dropout'], conf['model.trans_activation'], matcher, conf['model.pre_ln']).to(device)
-    criterion = SetCriterion(conf['dataset.num_frames'], conf['loss.empty_weight'], matcher_weights).to(device)
+    criterion = SetCriterion(conf['dataset.num_tracking_frames'], conf['loss.empty_weight'], matcher_weights).to(device)
     weight_dict = {'loss_keypoints': conf['loss.keypoints_coef'], 'loss_giou': conf['loss.giou_coef'],
                    'loss_boxes': conf['loss.boxes_coef'], 'loss_object': conf['loss.object_coef']}
     if conf['wandb']:
@@ -53,7 +54,7 @@ def main(conf_file='config.yaml', device='cuda:0'):
     # Dataset
     train_dataloader, train_dataset = (
         get_dataset_and_dataloader(name='train', num_stacked_frames=conf['model.num_stacked_frames'],
-                                   num_frames=conf['dataset.num_frames'],
+                                   num_tracking_frames=conf['dataset.num_tracking_frames'],
                                    max_num_points=conf['model.max_num_points'],
                                    area_min=conf['dataset.area_min'],
                                    area_size=conf['dataset.area_size'],
@@ -65,7 +66,7 @@ def main(conf_file='config.yaml', device='cuda:0'):
                                    num_workers=conf['training.num_dataset_workers']))
     test_dataloader, test_dataset = (
         get_dataset_and_dataloader(name='test', num_stacked_frames=conf['model.num_stacked_frames'],
-                                   num_frames=1,
+                                   num_tracking_frames=1,
                                    max_num_points=conf['model.max_num_points'],
                                    area_min=conf['dataset.area_min'],
                                    area_size=conf['dataset.area_size'],
@@ -97,7 +98,7 @@ def main(conf_file='config.yaml', device='cuda:0'):
     for epoch in range(conf['training.epochs']):
         train_stats = train_one_epoch(model=model, criterion=criterion, data_loader=train_dataloader,
                                       weight_dict=weight_dict, optimizer=optimizer, lr_scheduler=lr_scheduler,
-                                      device=device, epoch=epoch, num_frames=conf['dataset.num_frames'],
+                                      device=device, epoch=epoch, num_tracking_frames=conf['dataset.num_tracking_frames'],
                                       max_norm=conf['training.clip_max_norm'], use_wandb=conf['wandb'])
         val_stats = evaluate(model=model, data_loader=test_dataloader,
                              area_min=conf['dataset.area_min'], area_size=conf['dataset.area_size'],
@@ -129,6 +130,8 @@ def main(conf_file='config.yaml', device='cuda:0'):
                 keypoint_cdf_table = wandb.Table(data=keypoint_cdf, columns=["error_dist", "cdf"])
                 wandb.log({"keypoint_cdf": wandb.plot.line(keypoint_cdf_table, "error_dist", "cdf", title="Keypoint error")})
 
+    m = model.module if hasattr(model, 'module') else model
+    model = getattr(m, 'backbone', m)
     if conf['wandb']:
         output_file = Path(wandb.run.dir) / conf['training.model_file_name']
         torch.save(model, output_file)

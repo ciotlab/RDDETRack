@@ -10,11 +10,11 @@ import dill
 
 
 class RadarDataset(Dataset):
-    def __init__(self, name, num_stacked_frames, num_frames,  max_num_points, area_min, area_size, box_margin,
+    def __init__(self, name, num_stacked_frames, num_tracking_frames, max_num_points, area_min, area_size, box_margin,
                  min_max_velocity, min_max_power_db, camera_displacement_y):
         self.directory = Path(__file__).parents[1].resolve() / 'data' / name
         self.num_stacked_frames = num_stacked_frames
-        self.num_frames = num_frames
+        self.num_tracking_frames = num_tracking_frames
         self.max_num_points = max_num_points
         self.area_min = np.array(area_min)
         self.area_size = np.array(area_size)
@@ -33,7 +33,7 @@ class RadarDataset(Dataset):
         self.session_start_idx = []
         start_idx = 0
         for sess in self.meta_data:
-            length = sess['length'] - num_stacked_frames + 1
+            length = sess['length'] - (num_stacked_frames - 1) - (num_tracking_frames - 1)
             self.length += length
             self.session_start_idx.append(start_idx)
             start_idx += length
@@ -52,18 +52,17 @@ class RadarDataset(Dataset):
         i, sess_idx = 0, 0
         for sess_idx in range(self.num_sessions):
             start_idx, end_idx = self.session_start_idx[sess_idx], self.session_start_idx[sess_idx + 1]
-            if start_idx <= idx < end_idx - self.num_stacked_frames - self.num_frames + 2:
+            if start_idx <= idx < end_idx:
                 i = idx - start_idx
                 break
-            elif end_idx - self.num_stacked_frames - self.num_frames + 2 <= idx < end_idx:
-                return None
         data = self.data[sess_idx]
         frame_data = []
-        for j in range(self.num_frames):
+        for j in range(self.num_tracking_frames):
+            frame_idx = i + j
             point_cloud = []
-            for n in range(i, i + self.num_stacked_frames):
-                point_cloud.append(data[n+j]['point_cloud'])
-            point_cloud = np.concatenate(point_cloud, axis=0)  # points, xyz
+            for n in range(frame_idx, frame_idx + self.num_stacked_frames):
+                point_cloud.append(data[n]['point_cloud'])
+            point_cloud = np.concatenate(point_cloud, axis=0)  # points, xyzvp
             pc_len = point_cloud.shape[0]
             point_cloud_padding_mask = np.ones((self.max_num_points,)).astype(np.bool)  # points
             point_cloud_padding_mask[:pc_len] = False
@@ -72,14 +71,12 @@ class RadarDataset(Dataset):
             else:
                 pad_width = self.max_num_points - pc_len
                 point_cloud = np.pad(point_cloud, pad_width=((0, pad_width), (0, 0)), mode='constant')
-            keypoint = data[i + j + self.num_stacked_frames - 1]['keypoint']  # person, keypoints, xyz
-            box = data[i + j + self.num_stacked_frames - 1]['box']  # person, center/size, xyz
-            id = data[i + j + self.num_stacked_frames - 1]['id']
-
-            temp = {'point_cloud': point_cloud, 'point_cloud_padding_mask': point_cloud_padding_mask,
-                    'keypoint': keypoint, 'box': box, 'id': id}
-            frame_data.append(temp)
-
+            keypoint = data[frame_idx + self.num_stacked_frames - 1]['keypoint']  # person, keypoints, xyz
+            box = data[frame_idx + self.num_stacked_frames - 1]['box']  # person, center/size, xyz
+            id = data[frame_idx + self.num_stacked_frames - 1]['id']
+            tmp = {'point_cloud': point_cloud, 'point_cloud_padding_mask': point_cloud_padding_mask,
+                   'keypoint': keypoint, 'box': box, 'id': id}
+            frame_data.append(tmp)
         return frame_data
 
     def normalization(self, point_cloud, keypoint):
@@ -142,22 +139,23 @@ class RadarDataset(Dataset):
 
 
 def collate_fn(data):
-    data = list(filter(lambda x: x is not None, data))
-    point_cloud = np.stack([x['point_cloud'] for b in data for x in b], axis=0)  # batch, time, points, xyzvp
-    point_cloud_padding_mask = np.stack([x['point_cloud_padding_mask'] for b in data for x in b], axis=0)  # batch, time, points
-    keypoint = [x['keypoint'] for b in data for x in b]  # batch, (person, keypoints, xyz)
-    box = [x['box'] for b in data for x in b]  # batch, (person, center/size, xyz)
-    id = [x['id'] for b in data for x in b]
-
+    data = list(map(list, zip(*data)))  # time, batch, dict
+    point_cloud = np.stack([np.stack([bd['point_cloud'] for bd in td], axis=0) for td in data],
+                           axis=0)  # time, batch, points, xyzvp
+    point_cloud_padding_mask = np.stack([np.stack([bd['point_cloud_padding_mask'] for bd in td], axis=0) for td in data],
+                                        axis=0)  # time, batch, points
+    keypoint = [[bd['keypoint'] for bd in td] for td in data]  # time, batch, (person, keypoints, xyz)
+    box = [[bd['box'] for bd in td] for td in data]  # time, batch, (person, center/size, xyz)
+    id = [[bd['id'] for bd in td] for td in data]  # time, batch, (person)
     return {'point_cloud': point_cloud, 'point_cloud_padding_mask': point_cloud_padding_mask,
             'keypoint': keypoint, 'box': box, 'id': id}
 
 
-def get_dataset_and_dataloader(name, num_stacked_frames, num_frames, max_num_points, area_min, area_size,
+def get_dataset_and_dataloader(name, num_stacked_frames, num_tracking_frames, max_num_points, area_min, area_size,
                                box_margin, min_max_velocity, min_max_power_db, camera_displacement_y,
                                batch_size, num_workers=0):
-    dataset = RadarDataset(name=name, num_stacked_frames=num_stacked_frames, num_frames= num_frames,
-                           max_num_points=max_num_points,area_min=area_min, area_size=area_size, box_margin=box_margin,
+    dataset = RadarDataset(name=name, num_stacked_frames=num_stacked_frames, num_tracking_frames= num_tracking_frames,
+                           max_num_points=max_num_points, area_min=area_min, area_size=area_size, box_margin=box_margin,
                            min_max_velocity=min_max_velocity, min_max_power_db=min_max_power_db, camera_displacement_y=camera_displacement_y)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers,
                             collate_fn=collate_fn)
@@ -165,12 +163,13 @@ def get_dataset_and_dataloader(name, num_stacked_frames, num_frames, max_num_poi
 
 
 if __name__ == '__main__':
-    dataloader, dataset = get_dataset_and_dataloader(name='train', num_stacked_frames=4, max_num_points=2000,
+    dataloader, dataset = get_dataset_and_dataloader(name='train', num_stacked_frames=4, num_tracking_frames=16, max_num_points=2000,
                                                      area_min=[0.0, -12.0, -2.0], area_size=[9.0, 24.0, 4.0],
                                                      box_margin=[0.2, 0.2, 0.2],
                                                      min_max_velocity=[-2.0, 2.0], min_max_power_db=[-50.0, 50.0],
                                                      camera_displacement_y=-0.1,
                                                      batch_size=64, num_workers=0)
+    #d = dataset.__getitem__(1024)
     for data in dataloader:
         pass
 
