@@ -5,15 +5,15 @@ dataset.min_max_velocity: [-2.0, 2.0]  # m/s (= 3.6 km/h)
 dataset.min_max_power_db: [-50.0, 50.0]  # dB
 dataset.camera_displacement_y: -0.1  # Camera displacement along y-axis (meter)
 dataset.num_keypoints: 18  # Number of human skeleton keypoints
-dataset.num_frames: 5
+dataset.num_tracking_frames: 5
 
 model.num_stacked_frames: 2
 model.input_mlp_num_layers: 0
 model.box_mlp_num_layers: 2
 model.max_num_points: 1000
-model.num_layers: 6
-model.dim_feedforward: 2048
-model.d_model: 256
+model.num_layers: 5
+model.dim_feedforward: 1024
+model.d_model: 128
 model.pre_ln: True  # pre layer-normalization
 model.trans_dropout: 0.1
 model.n_heads: 4
@@ -21,10 +21,10 @@ model.num_queries: 100
 model.trans_activation: 'gelu'  # relu, gelu, glu
 
 training.num_dataset_workers: 0
-training.batch_size: 32
+training.batch_size: 64
 training.lr: 0.0001
 training.weight_decay: 0.01
-training.epochs: 128
+training.epochs: 200
 # training.lr_drop: 12  # for stepLR scheduler
 training.warmup_proportion: 0.01  # for cosine_schedule_with_warmup scheduler
 training.clip_max_norm: 1.0
