@@ -69,13 +69,15 @@ class RDDETRTracking(nn.Module):
 
         return track_query
 
-    def forward(self, point_cloud, point_cloud_padding_mask, boxes, keypoints, id, num_tracking_frames=1):
+    def forward(self, point_cloud, point_cloud_padding_mask, boxes, keypoints, id):
         prediction_list = []
         target_list = []
 
         prev_targets = None
         prev_out = None
         track_query = None
+
+        num_tracking_frames = len(point_cloud)
 
         for t in range(num_tracking_frames):
             point_cloud_t = point_cloud[t]

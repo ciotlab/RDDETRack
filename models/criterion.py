@@ -9,10 +9,9 @@ from models.matcher import HungarianMatcher
 
 
 class SetCriterion(nn.Module):
-    def __init__(self, num_frames, empty_weight, matcher_weights=None):
+    def __init__(self, empty_weight, matcher_weights=None):
         super().__init__()
         self.register_buffer('empty_weight', torch.tensor(empty_weight))
-        self.num_frames = num_frames
         if matcher_weights:
             cost_boxes = matcher_weights['cost_boxes']
             cost_keypoint = matcher_weights['cost_keypoint']

@@ -45,7 +45,7 @@ def main(conf_file='config.yaml', device='cuda:0'):
                    conf['model.input_mlp_num_layers'], conf['model.box_mlp_num_layers'], conf['model.d_model'],
                    conf['model.num_queries'], conf['model.n_heads'], conf['model.num_layers'], conf['model.dim_feedforward'],
                    conf['model.trans_dropout'], conf['model.trans_activation'], matcher, conf['model.pre_ln']).to(device)
-    criterion = SetCriterion(conf['dataset.num_tracking_frames'], conf['loss.empty_weight'], matcher_weights).to(device)
+    criterion = SetCriterion(conf['loss.empty_weight'], matcher_weights).to(device)
     weight_dict = {'loss_keypoints': conf['loss.keypoints_coef'], 'loss_giou': conf['loss.giou_coef'],
                    'loss_boxes': conf['loss.boxes_coef'], 'loss_object': conf['loss.object_coef']}
     if conf['wandb']:
@@ -75,7 +75,8 @@ def main(conf_file='config.yaml', device='cuda:0'):
                                    min_max_power_db=conf['dataset.min_max_power_db'],
                                    camera_displacement_y=conf['dataset.camera_displacement_y'],
                                    batch_size=conf['training.batch_size'],
-                                   num_workers=conf['training.num_dataset_workers']))
+                                   num_workers=conf['training.num_dataset_workers'],
+                                   validation=True))
 
 
     # Optimizer and LR scheduler
@@ -98,8 +99,7 @@ def main(conf_file='config.yaml', device='cuda:0'):
     for epoch in range(conf['training.epochs']):
         train_stats = train_one_epoch(model=model, criterion=criterion, data_loader=train_dataloader,
                                       weight_dict=weight_dict, optimizer=optimizer, lr_scheduler=lr_scheduler,
-                                      device=device, epoch=epoch, num_tracking_frames=conf['dataset.num_tracking_frames'],
-                                      max_norm=conf['training.clip_max_norm'], use_wandb=conf['wandb'])
+                                      device=device, epoch=epoch, max_norm=conf['training.clip_max_norm'], use_wandb=conf['wandb'])
         val_stats = evaluate(model=model, data_loader=test_dataloader,
                              area_min=conf['dataset.area_min'], area_size=conf['dataset.area_size'],
                              num_keypoints=conf['dataset.num_keypoints'],

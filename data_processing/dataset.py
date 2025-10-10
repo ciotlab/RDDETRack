@@ -11,9 +11,10 @@ import dill
 
 class RadarDataset(Dataset):
     def __init__(self, name, num_stacked_frames, num_tracking_frames, max_num_points, area_min, area_size, box_margin,
-                 min_max_velocity, min_max_power_db, camera_displacement_y):
+                 min_max_velocity, min_max_power_db, camera_displacement_y, validation=False):
         self.directory = Path(__file__).parents[1].resolve() / 'data' / name
         self.num_stacked_frames = num_stacked_frames
+        self.validation = validation
         self.num_tracking_frames = num_tracking_frames
         self.max_num_points = max_num_points
         self.area_min = np.array(area_min)
@@ -46,16 +47,25 @@ class RadarDataset(Dataset):
 
 
     def __len__(self):
-        return self.length
+        if self.validation:
+            return self.num_sessions
+        else:
+            return self.length
 
     def __getitem__(self, idx):
-        i, sess_idx = 0, 0
-        for sess_idx in range(self.num_sessions):
-            start_idx, end_idx = self.session_start_idx[sess_idx], self.session_start_idx[sess_idx + 1]
-            if start_idx <= idx < end_idx:
-                i = idx - start_idx
-                break
-        data = self.data[sess_idx]
+        if self.validation:
+            i = 0
+            session_length = self.session_start_idx[idx + 1] - self.session_start_idx[idx]
+            self.num_tracking_frames = session_length
+            data = self.data[idx]
+        else:
+            i, sess_idx = 0, 0
+            for sess_idx in range(self.num_sessions):
+                start_idx, end_idx = self.session_start_idx[sess_idx], self.session_start_idx[sess_idx + 1]
+                if start_idx <= idx < end_idx:
+                    i = idx - start_idx
+                    break
+            data = self.data[sess_idx]
         frame_data = []
         for j in range(self.num_tracking_frames):
             frame_idx = i + j
@@ -153,10 +163,11 @@ def collate_fn(data):
 
 def get_dataset_and_dataloader(name, num_stacked_frames, num_tracking_frames, max_num_points, area_min, area_size,
                                box_margin, min_max_velocity, min_max_power_db, camera_displacement_y,
-                               batch_size, num_workers=0):
+                               batch_size, num_workers=0, validation=False):
     dataset = RadarDataset(name=name, num_stacked_frames=num_stacked_frames, num_tracking_frames= num_tracking_frames,
                            max_num_points=max_num_points, area_min=area_min, area_size=area_size, box_margin=box_margin,
-                           min_max_velocity=min_max_velocity, min_max_power_db=min_max_power_db, camera_displacement_y=camera_displacement_y)
+                           min_max_velocity=min_max_velocity, min_max_power_db=min_max_power_db, camera_displacement_y=camera_displacement_y,
+                           validation=validation)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers,
                             collate_fn=collate_fn)
     return dataloader, dataset

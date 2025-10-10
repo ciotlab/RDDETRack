@@ -17,7 +17,7 @@ from models.matcher import HungarianMatcher
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, weight_dict: Dict, optimizer: torch.optim.Optimizer,
-                    lr_scheduler, device: torch.device, epoch: int, num_tracking_frames, max_norm: float = 0, use_wandb=False):
+                    lr_scheduler, device: torch.device, epoch: int, max_norm: float = 0, use_wandb=False):
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -32,7 +32,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         keypoints = data['keypoint']
         id = data['id']
 
-        outputs, targets = model(point_cloud, point_cloud_padding_mask, boxes, keypoints, id, num_tracking_frames)
+        outputs, targets = model(point_cloud, point_cloud_padding_mask, boxes, keypoints, id)
         loss_dict = criterion(outputs, targets)
         total_loss = torch.tensor(0.0, device=device)
         for k in loss_dict.keys():
