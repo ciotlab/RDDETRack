@@ -74,7 +74,7 @@ def main(conf_file='config.yaml', device='cuda:0'):
                                    min_max_velocity=conf['dataset.min_max_velocity'],
                                    min_max_power_db=conf['dataset.min_max_power_db'],
                                    camera_displacement_y=conf['dataset.camera_displacement_y'],
-                                   batch_size=conf['training.batch_size'],
+                                   batch_size=1,
                                    num_workers=conf['training.num_dataset_workers'],
                                    validation=True))
 
