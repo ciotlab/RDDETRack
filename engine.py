@@ -66,7 +66,7 @@ def evaluate(model, data_loader, area_min, area_size, num_keypoints, device, key
     total_num_target = 0
     skeleton_list = []
     keypoint_error_list = []
-    for data in metric_logger.log_every(data_loader, 10, header):
+    for data in metric_logger.log_every(data_loader, 1, header):
         point_cloud = torch.tensor(data['point_cloud']).to(device)
         point_cloud_padding_mask = torch.tensor(data['point_cloud_padding_mask']).to(device)
         boxes = data['box']
